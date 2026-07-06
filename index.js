@@ -9,7 +9,12 @@
  */
 
 import { extension_settings, getContext } from '../../../extensions.js';
-import { SYSTEM_PROMPT, buildUserPrompt } from './prompt.js';
+import {
+    SYSTEM_PROMPT, buildUserPrompt,
+    CLASSIFY_SYSTEM_PROMPT, buildClassifyPrompt,
+    KNOWLEDGE_PREGNANCY, KNOWLEDGE_SEXUAL,
+    KNOWLEDGE_CONSANGUINITY, KNOWLEDGE_SPECIAL_RACE,
+} from './prompt.js';
 import {
     eventSource,
     event_types,
@@ -38,6 +43,7 @@ const defaultSettings = {
     apiKey: '',
     model: 'gpt-4o-mini',
     autoUpdate: true,
+    useTwoStep: false,   // 是否启用两步调用（先分类，再生成）
     worldbook: '',
     characters: [],
     activeCharIndex: 0,
@@ -222,11 +228,61 @@ async function deleteCharacterWIEntry(char) {
 // ============================
 
 /**
+ * 内部：向 API 发一次 chat completion 请求
+ */
+async function _apiCall({ apiUrl, apiKey, model, messages, maxTokens = 800, temperature = 0.3 }) {
+    const base = apiUrl.replace(/\/$/, '');
+    const resp = await fetch(`${base}/chat/completions`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${apiKey}`,
+        },
+        body: JSON.stringify({ model, messages, max_tokens: maxTokens, temperature }),
+    });
+    if (!resp.ok) {
+        const errText = await resp.text().catch(() => resp.statusText);
+        throw new Error(`HTTP ${resp.status}: ${errText}`);
+    }
+    const json = await resp.json();
+    return json.choices?.[0]?.message?.content ?? null;
+}
+
+/**
+ * 第一步：发轻量请求让模型对剧情分类
+ * @returns {{ pregnant, sexual, consanguinity, special_race } | null}
+ */
+async function classifyScene({ apiUrl, apiKey, model }, chatHistory) {
+    try {
+        const raw = await _apiCall({
+            apiUrl, apiKey, model,
+            maxTokens: 80,
+            temperature: 0,
+            messages: [
+                { role: 'system', content: CLASSIFY_SYSTEM_PROMPT },
+                { role: 'user',   content: buildClassifyPrompt({ chatHistory }) },
+            ],
+        });
+        if (!raw) return null;
+
+        // 提取 JSON（模型有时会在 JSON 前后加说明文字）
+        const match = raw.match(/\{[\s\S]*\}/);
+        if (!match) return null;
+        return JSON.parse(match[0]);
+
+    } catch (e) {
+        console.warn(`${LOG} 场景分类失败（降级为单步模式）:`, e);
+        return null;  // 分类失败时退化为无知识库模式
+    }
+}
+
+/**
  * 根据聊天记录调用独立API更新角色状态
+ * 若启用两步模式，先分类剧情再按需注入知识模块
  * @returns {string|null} 返回 AI 的原始响应文本，失败返回 null
  */
 async function callStatusAPI(char) {
-    const { apiUrl, apiKey, model } = getSettings();
+    const { apiUrl, apiKey, model, useTwoStep } = getSettings();
     if (!apiKey || !model) {
         toastr.warning('请先在扩展设置中配置 API Key 和模型', '伊甸园');
         return null;
@@ -239,7 +295,7 @@ async function callStatusAPI(char) {
     const recent = chat.slice(-20).filter(m => m.mes && !m.is_system);
     const chatHistory = recent.map(m =>
         `${m.is_user ? 'User' : (m.name || 'Assistant')}: ${m.mes}`
-    ).join('\n\n');
+    ).join('\n\n') || '（无对话记录）';
 
     // 当前时间
     const now = new Date();
@@ -251,8 +307,21 @@ async function callStatusAPI(char) {
     const currentStateLines = STATUS_FIELDS.map(f => `      ${f}|${s[f] || ''}`).join('\n');
     const currentState = `<伊甸园>\n      ${s.datetime || datetime}\n${currentStateLines}\n</伊甸园>`;
 
-    const systemPrompt = SYSTEM_PROMPT;
+    // ── 两步模式：先分类，再按需加载知识模块 ──
+    const knowledgeModules = [];
 
+    if (useTwoStep) {
+        const flags = await classifyScene({ apiUrl, apiKey, model }, chatHistory);
+        if (flags) {
+            if (flags.pregnant)      knowledgeModules.push(KNOWLEDGE_PREGNANCY);
+            if (flags.sexual)        knowledgeModules.push(KNOWLEDGE_SEXUAL);
+            if (flags.consanguinity) knowledgeModules.push(KNOWLEDGE_CONSANGUINITY);
+            if (flags.special_race)  knowledgeModules.push(KNOWLEDGE_SPECIAL_RACE);
+            console.log(`${LOG} 场景分类:`, flags, `| 加载模块: ${knowledgeModules.filter(m=>m).length} 个`);
+        }
+    }
+
+    // ── 第二步（或单步）：生成状态 ──
     const userPrompt = buildUserPrompt({
         name:               char.name,
         race:               char.race               || '人类',
@@ -265,36 +334,20 @@ async function callStatusAPI(char) {
         symptoms:           char.symptoms           || '无',
         currentState,
         datetime,
-        chatHistory:        chatHistory             || '（无对话记录）',
+        chatHistory,
+        knowledgeModules,
     });
 
     try {
-        const base = apiUrl.replace(/\/$/, '');
-        const resp = await fetch(`${base}/chat/completions`, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${apiKey}`,
-            },
-            body: JSON.stringify({
-                model,
-                messages: [
-                    { role: 'system', content: systemPrompt },
-                    { role: 'user',   content: userPrompt },
-                ],
-                max_tokens: 1200,
-                temperature: 0.5,
-            }),
+        return await _apiCall({
+            apiUrl, apiKey, model,
+            maxTokens: 1200,
+            temperature: 0.5,
+            messages: [
+                { role: 'system', content: SYSTEM_PROMPT },
+                { role: 'user',   content: userPrompt },
+            ],
         });
-
-        if (!resp.ok) {
-            const errText = await resp.text().catch(() => resp.statusText);
-            throw new Error(`HTTP ${resp.status}: ${errText}`);
-        }
-
-        const json = await resp.json();
-        return json.choices?.[0]?.message?.content ?? null;
-
     } catch (err) {
         console.error(`${LOG} API 调用失败:`, err);
         toastr.error(`状态更新失败: ${err.message}`, '伊甸园');
@@ -378,6 +431,8 @@ function renderUI() {
     const s = getSettings();
     const autoChk = document.getElementById('eden-auto-update');
     if (autoChk) autoChk.checked = s.autoUpdate;
+    const twoStepChk = document.getElementById('eden-two-step');
+    if (twoStepChk) twoStepChk.checked = s.useTwoStep;
 }
 
 /** 更新世界书下拉列表 */
@@ -747,6 +802,12 @@ function bindEvents() {
         saveSettingsDebounced();
     });
 
+    // 两步模式开关
+    $(document).on('change', '#eden-two-step', function () {
+        getSettings().useTwoStep = this.checked;
+        saveSettingsDebounced();
+    });
+
     // API 配置
     $(document).on('input', '#eden-api-url', function () { getSettings().apiUrl = this.value; saveSettingsDebounced(); });
     $(document).on('input', '#eden-api-key', function () { getSettings().apiKey = this.value; saveSettingsDebounced(); });
@@ -819,6 +880,10 @@ function buildPanelHTML() {
         <label class="checkbox_label" style="margin:0;" title="每次AI回复后自动更新状态">
           <input id="eden-auto-update" type="checkbox" ${s.autoUpdate ? 'checked' : ''}/>
           <span>自动更新</span>
+        </label>
+        <label class="checkbox_label" style="margin:0;" title="先判断剧情类型，再按需加载知识模块（多消耗一次API调用）">
+          <input id="eden-two-step" type="checkbox" ${s.useTwoStep ? 'checked' : ''}/>
+          <span>智能知识库</span>
         </label>
         <span id="eden-updating-indicator" style="display:none;font-size:.85em;opacity:.7;">
           <i class="fa-solid fa-spinner fa-spin"></i> 更新中…

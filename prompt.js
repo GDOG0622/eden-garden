@@ -1,26 +1,41 @@
 /**
  * 伊甸园状态面板 — 提示词配置文件
  *
- * 你可以在这里自由修改发给 AI 的提示词。
+ * 本文件包含两部分：
+ *   1. 主提示词（系统提示 + 用户提示构建函数）
+ *   2. 知识库模块（按剧情类型按需注入）
  *
- * buildUserPrompt() 接收一个对象，包含以下可用变量：
- *   {name}               角色名字
- *   {race}               种族
- *   {age}                年龄（数字字符串）
- *   {height}             身高
- *   {weight}             体重
- *   {measurements}       三围
- *   {cycleLength}        月经周期天数 C
- *   {menstrualDuration}  经期持续天数 M
- *   {symptoms}           月经症状描述
- *   {currentState}       上次保存的 <伊甸园> 块完整文本
- *   {datetime}           当前时间，格式 YYYY-MM-DD HH:MM
- *   {chatHistory}        最近对话文本（User/角色名: 消息内容）
+ * buildUserPrompt() 可用变量：
+ *   {name} {race} {age} {height} {weight} {measurements}
+ *   {cycleLength} {menstrualDuration} {symptoms}
+ *   {currentState}   上次保存的完整 <伊甸园> 块
+ *   {datetime}       当前时间 YYYY-MM-DD HH:MM
+ *   {chatHistory}    最近对话文本
+ *   {knowledgeModules}  数组，由引擎按剧情自动填充，通常无需手动修改
  */
 
 // ────────────────────────────────────────────────
-//  系统提示词（System Prompt）
+//  第一步：剧情分类提示词
+//  引擎会先用这对提示词判断剧情类型，结果决定加载哪些知识库模块。
 // ────────────────────────────────────────────────
+
+export const CLASSIFY_SYSTEM_PROMPT =
+`You are a scene classifier for a roleplay story tracker.
+Analyze the provided conversation excerpt and return ONLY a JSON object with these boolean fields:
+- pregnant: Is the character currently pregnant, or has conception/pregnancy been established in the story?
+- sexual: Is there sexual activity or intercourse occurring/implied in the recent messages?
+- consanguinity: Are any characters in a blood-related (incestuous/consanguineous) relationship?
+- special_race: Are any characters non-human (e.g. demon, elf, beast-kin, alien, etc.)?
+Respond with ONLY valid JSON, no explanation. Example: {"pregnant":false,"sexual":true,"consanguinity":false,"special_race":false}`;
+
+export function buildClassifyPrompt({ chatHistory }) {
+    return `Analyze this conversation excerpt:\n\n${chatHistory}\n\nReturn the JSON classification:`;
+}
+
+// ────────────────────────────────────────────────
+//  主系统提示词（System Prompt）
+// ────────────────────────────────────────────────
+
 export const SYSTEM_PROMPT =
 `你是一个专业的角色生理状态追踪器。
 任务：根据最新对话内容，更新角色的<伊甸园>状态面板。
@@ -31,13 +46,21 @@ export const SYSTEM_PROMPT =
 4. 如有近亲关系，须在该前提下综合考量所有指标。`;
 
 // ────────────────────────────────────────────────
-//  用户提示词构建函数（User Prompt）
+//  主用户提示词构建函数（User Prompt）
 // ────────────────────────────────────────────────
+
 export function buildUserPrompt({
     name, race, age, height, weight, measurements,
     cycleLength, menstrualDuration, symptoms,
     currentState, datetime, chatHistory,
+    knowledgeModules = [],
 }) {
+    // 将命中的知识模块拼成一个段落插入提示词
+    const knowledgeSection = knowledgeModules.filter(m => m && m.trim()).length
+        ? '\n\n## 当前情景适用参考知识（请结合以下知识更新状态）\n\n' +
+          knowledgeModules.filter(m => m && m.trim()).join('\n\n---\n\n')
+        : '';
+
     return `角色基本信息：
 名字：${name}
 种族：${race}
@@ -55,7 +78,7 @@ ${currentState}
 当前时间：${datetime}
 
 最近对话（从旧到新）：
-${chatHistory}
+${chatHistory}${knowledgeSection}
 
 请输出更新后的状态，格式如下（字段顺序和名称不可变动）：
 <伊甸园>
@@ -78,3 +101,96 @@ ${chatHistory}
       健康|（孕：胎儿健康/孕检提醒；非孕：N/A）
 </伊甸园>`;
 }
+
+// ════════════════════════════════════════════════
+//  知识库模块
+//  引擎会根据剧情分类自动决定是否注入。
+//  你可以自由修改每个模块的内容，留空字符串则该模块不加载。
+// ════════════════════════════════════════════════
+
+// ── 模块A：怀孕 ────────────────────────────────
+// 命中条件：剧情中存在怀孕或受孕事件
+export const KNOWLEDGE_PREGNANCY =
+`【妊娠参考知识】
+孕周速查（母体表现 / 胎儿 / 检查要点）：
+- 0–4周：可能尚未察觉；胚泡植入
+- 5–8周：孕反起始；阴超约6–7周可见胎心；恶心/呕吐/嗅觉敏感/频尿
+- 9–12周：孕反高峰后趋缓；器官分化稳定；乳腺开始发育，乳房胀痛乳晕变深
+- 13–16周：症状缓解；孕反趋缓，偶有下腹牵拉感；乳腺腺泡形成，分泌少量初乳（因孕激素抑制，不排出）
+- 17–20周：初感胎动；18–22周系统超声；腰背不适
+- 21–24周：开始显怀；铁需求升高；胃灼热/便秘/下肢抽筋/体重腹围上升
+- 25–27周：背腰不适加重；OGTT糖耐量检查；浮肿/高血压警惕
+- 28–32周：晚孕起始；规律数胎动；乳腺可能渗出初乳（黄色/透明）
+- 33–36周：假性宫缩增多；GBS筛查；耻骨联合痛/睡眠受扰
+- 37–40+周：足月；规律宫缩/见红/破水警示；骨盆压力增加
+- 产褥0–6周：胎盘娩出后雌孕激素骤降，催乳素发挥作用，泌乳开始
+
+怀孕检测时间窗：
+- 血清β-hCG：受精后约7–10天可检出
+- 尿hCG试纸：受精后约12–14天（晨尿优先）
+- 阴道超声：4+5–5+0周见孕囊；5+5–6+3周见胎心
+
+胎儿层面：
+- 8–12周：胎心率120–160 bpm；16–20周可辨性别；24–28周肺泡形成
+- 30–34周：神经系统快速成熟；35–37周呼吸系统基本成熟；38–40周约3kg
+
+孕期复孕（极罕见）：若发生，阶段字段需分别列出两个受精卵的孕周。`;
+
+// ── 模块B：性爱/受孕 ──────────────────────────
+// 命中条件：剧情中存在性行为
+export const KNOWLEDGE_SEXUAL =
+`【性爱与受孕参考知识】
+月经周期各阶段受孕概率（C=周期总天数，M=经期天数）：
+- 月经期（第1~M天）：受孕率约1–2%
+- 卵泡期（第M+1~M+7天）：受孕率从低到高约3–28%
+- 排卵期（第M+8~M+11天）：受孕率约25–33%（高峰期）
+- 黄体期（第M+12~C天）：受孕率接近0%（但不为零）
+注意：安全期是伪科学，任何时期都存在受孕可能，只是概率大小不同。
+
+精子相关：
+- 单次射精量约2–5ml，含约4000万–3亿个精子
+- 射入宫内后活性可维持约3–5天（最长可达7天）
+- 戴套：大幅降低精子进入量，但不保证100%阻断（破损/使用不当）
+- 不同避孕套（超薄/增厚/延时）对体验有影响，需在剧情中体现
+
+事后护理（条件允许时）：
+- 女性房事结束后建议排尿一次（冲去杂菌）
+- 用温水从前往后冲洗私处（或用湿巾从前往后擦干净外阴）`;
+
+// ── 模块C：近亲关系 ───────────────────────────
+// 命中条件：剧情中存在血缘关系的角色之间发生性行为
+export const KNOWLEDGE_CONSANGUINITY =
+`【近亲关系参考知识】
+近交系数F与风险（用于内部推断，不外显推导过程）：
+- 父母-子女/全同胞：F=0.25（极高风险；伦理与法律普遍禁止）
+- 半同胞/叔（舅）与侄（甥）：F=0.125（非常高）
+- 堂/表兄妹（first cousins）：F=0.0625（中等增风险）
+- 再从表/更远旁系：F≤0.03125（较低增幅）
+
+先天缺陷风险参考（群体层面）：
+- 一般人群基线：约3–4%
+- 堂/表兄妹：总风险约5–7%（较基线+1–3个百分点）
+- 更近亲属：增幅更大；更远旁系：增幅通常更小
+- 风险是"概率上升"而非"必然"
+
+主要遗传风险：
+- 常染色体隐性病风险上升（共享祖源使致病等位基因同型合子概率提高）
+- 先天结构畸形与围产期不良结局风险上升
+- 家族致病变异显露概率提高
+
+怀孕时须考量：
+- 基于近亲系数调整先天缺陷风险，在"健康"字段体现相应的孕检建议
+- 若家族有已知遗传病，风险显著提高
+- 孕期检查建议：NT筛查+系统超声，必要时基因检测`;
+
+// ── 模块D：特殊种族 ───────────────────────────
+// 命中条件：剧情中有非人类角色（妖魔/精灵/兽人等）
+// 请在此填写特殊种族的生理差异，留空则不加载
+export const KNOWLEDGE_SPECIAL_RACE =
+``;
+// 示例（取消注释并修改）：
+// export const KNOWLEDGE_SPECIAL_RACE =
+// `【特殊种族参考知识】
+// 恶魔：体温较人类高约1–2°C；孕期更长（约12–14个月）；后代可能具有尾/角等特征
+// 精灵：孕期约18个月；极低生育率；双胎罕见
+// 兽人：月经周期较短（约21天）；排卵信号更明显（体温/气味变化）`;

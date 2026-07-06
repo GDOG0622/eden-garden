@@ -186,9 +186,12 @@
 /* ---- 模态框 ---- */
 .eden-modal-overlay {
     position: fixed;
-    top: 0; left: 0; right: 0; bottom: 0;   /* inset 兼容性写法 */
+    top: 0;
+    left: 0;
+    width: 100vw;   /* vw/vh 永远相对视口，不受祖先 transform 影响 */
+    height: 100vh;
     background: rgba(0, 0, 0, 0.75);
-    z-index: 100000;                          /* 高于 ST 所有浮层 */
+    z-index: 100000;
     display: flex;
     align-items: center;
     justify-content: center;
