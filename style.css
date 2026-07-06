@@ -222,10 +222,19 @@
 
 .eden-modal-footer {
     display: flex;
+    flex-direction: row;        /* 强制横排 */
     justify-content: flex-end;
+    align-items: center;
     gap: 8px;
     padding: 10px 16px;
     border-top: 1px solid var(--eden-border);
+    flex-shrink: 0;
+}
+
+.eden-modal-footer .menu_button {
+    display: inline-flex;       /* 覆盖 ST 的 block/flex 默认值 */
+    align-items: center;
+    white-space: nowrap;
     flex-shrink: 0;
 }
 

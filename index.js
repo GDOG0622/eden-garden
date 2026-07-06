@@ -834,18 +834,20 @@ function buildPanelHTML() {
 export async function init() {
     ensureDefaults();
 
-    // 等待 ST 初始化完成后注入 UI
-    eventSource.on(event_types.APP_READY, () => {
+    // 用函数封装，内部守卫防止重复注入
+    function setupUI() {
+        if (document.getElementById('eden-garden-container')) return;
         $('#extensions_settings2').append(buildPanelHTML());
         bindEvents();
         renderUI();
-    });
+    }
 
-    // 如果 APP_READY 已经触发过（扩展热加载情形），立即执行
-    if ($('#extensions_settings2').length && !document.getElementById('eden-garden-container')) {
-        $('#extensions_settings2').append(buildPanelHTML());
-        bindEvents();
-        renderUI();
+    // APP_READY 时注入（正常启动路径）
+    eventSource.on(event_types.APP_READY, setupUI);
+
+    // APP_READY 已触发过时立即注入（热加载 / GitHub 安装后刷新）
+    if ($('#extensions_settings2').length) {
+        setupUI();
     }
 
     // 监听 AI 回复完成事件
