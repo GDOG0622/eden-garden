@@ -1,0 +1,14 @@
+{
+    "display_name": "伊甸园状态面板",
+    "loading_order": 20,
+    "requires": [],
+    "optional": [],
+    "js": "index.js",
+    "css": "style.css",
+    "author": "Custom",
+    "version": "1.0.0",
+    "homePage": "",
+    "hooks": {
+        "activate": "init"
+    }
+}

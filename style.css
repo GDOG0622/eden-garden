@@ -1,0 +1,204 @@
+/* ============================
+   伊甸园状态面板 - Extension CSS
+   ============================ */
+
+#eden-garden-container {
+    --eden-border: var(--SmartThemeBorderColor, rgba(255,255,255,0.12));
+    --eden-key-bg: rgba(255,255,255,0.04);
+}
+
+/* ---- 状态表格 ---- */
+.eden-table-wrap {
+    overflow-x: auto;
+    border: 1px solid var(--eden-border);
+    border-radius: 4px;
+    margin: 6px 0;
+}
+
+.eden-status-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.88em;
+    table-layout: fixed;
+}
+
+.eden-status-table td {
+    padding: 4px 7px;
+    border-bottom: 1px solid var(--eden-border);
+    vertical-align: top;
+    word-break: break-word;
+}
+
+.eden-status-table tr:last-child td {
+    border-bottom: none;
+}
+
+.eden-datetime-row td {
+    text-align: center;
+    font-size: 0.82em;
+    opacity: 0.65;
+    padding: 3px;
+}
+
+.eden-field-key {
+    width: 52px;
+    background: var(--eden-key-bg);
+    font-weight: 600;
+    color: var(--SmartThemeEmColor, #c9a0e8);
+    white-space: nowrap;
+    user-select: none;
+}
+
+.eden-field-val {
+    position: relative;
+    min-height: 22px;
+}
+
+.eden-field-display {
+    display: block;
+    padding-right: 24px;
+    white-space: pre-wrap;
+    line-height: 1.4;
+}
+
+.eden-field-edit {
+    width: 100%;
+    box-sizing: border-box;
+    resize: vertical;
+    min-height: 38px;
+    font-size: 0.9em;
+    margin-bottom: 2px;
+}
+
+.eden-edit-btn {
+    position: absolute;
+    top: 2px;
+    right: 2px;
+    font-size: 0.75em !important;
+    opacity: 0.4;
+    cursor: pointer;
+    padding: 2px 4px !important;
+    line-height: 1;
+}
+
+.eden-edit-btn:hover {
+    opacity: 1;
+}
+
+/* ---- 角色导航栏 ---- */
+.eden-nav-bar {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    margin-bottom: 4px;
+    flex-wrap: nowrap;
+}
+
+.eden-char-label {
+    flex: 1;
+    text-align: center;
+    font-weight: bold;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    min-width: 0;
+}
+
+.eden-char-page {
+    opacity: 0.65;
+    font-size: 0.82em;
+    white-space: nowrap;
+}
+
+.eden-nav-btn {
+    min-width: 26px;
+    text-align: center;
+    font-size: 1.1em;
+    padding: 1px 5px !important;
+}
+
+/* ---- 表单行 ---- */
+.eden-form-row {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    margin-bottom: 6px;
+}
+
+.eden-form-label {
+    flex: 0 0 80px;
+    padding-top: 5px;
+    font-size: 0.88em;
+    color: var(--SmartThemeEmColor, #c9a0e8);
+    text-align: right;
+}
+
+.eden-form-row .text_pole {
+    flex: 1;
+    min-width: 0;
+}
+
+/* ---- 模态框 ---- */
+.eden-modal-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.65);
+    z-index: 9999;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.eden-modal {
+    background: var(--SmartThemeBlurTintColor, #1a1a2e);
+    border: 1px solid var(--eden-border);
+    border-radius: 8px;
+    width: min(480px, 92vw);
+    max-height: 85vh;
+    display: flex;
+    flex-direction: column;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+}
+
+.eden-modal-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--eden-border);
+    flex-shrink: 0;
+}
+
+.eden-modal-body {
+    padding: 12px 16px;
+    overflow-y: auto;
+    flex: 1;
+}
+
+.eden-modal-footer {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+    padding: 10px 16px;
+    border-top: 1px solid var(--eden-border);
+    flex-shrink: 0;
+}
+
+/* ---- 更新指示 ---- */
+#eden-updating-indicator {
+    font-size: 0.85em;
+    opacity: 0.7;
+}
+
+/* ---- 状态指示点 ---- */
+.eden-status-dot {
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    margin-right: 5px;
+}
+
+.eden-status-dot.ok { background: #4caf50; }
+.eden-status-dot.warn { background: #ff9800; }
+.eden-status-dot.error { background: #f44336; }
