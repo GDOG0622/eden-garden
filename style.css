@@ -186,23 +186,25 @@
 /* ---- 模态框 ---- */
 .eden-modal-overlay {
     position: fixed;
-    inset: 0;
-    background: rgba(0, 0, 0, 0.65);
-    z-index: 9999;
+    top: 0; left: 0; right: 0; bottom: 0;   /* inset 兼容性写法 */
+    background: rgba(0, 0, 0, 0.75);
+    z-index: 100000;                          /* 高于 ST 所有浮层 */
     display: flex;
     align-items: center;
     justify-content: center;
+    padding: 12px;
+    box-sizing: border-box;
 }
 
 .eden-modal {
     background: var(--SmartThemeBlurTintColor, #1a1a2e);
     border: 1px solid var(--eden-border);
     border-radius: 8px;
-    width: min(480px, 92vw);
-    max-height: 85vh;
+    width: min(460px, 100%);
+    max-height: calc(100vh - 24px);
     display: flex;
     flex-direction: column;
-    box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+    box-shadow: 0 8px 32px rgba(0,0,0,0.6);
 }
 
 .eden-modal-header {

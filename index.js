@@ -15,14 +15,9 @@ import {
     event_types,
     saveSettingsDebounced,
     callPopup,
+    getRequestHeaders,
 } from '../../../../script.js';
-import {
-    world_names,
-    loadWorldInfo,
-    saveWorldInfo,
-    createWorldInfoEntry,
-    world_info_position,
-} from '../../../world-info.js';
+import { world_names } from '../../../world-info.js';
 
 // ============================
 //  常量与默认值
@@ -114,52 +109,95 @@ function buildWIContent(char) {
 }
 
 // ============================
-//  世界书操作
+//  世界书操作（直接调用 REST API，绕过 ST 缓存层）
 // ============================
+
+/** 计算世界书中空闲的 UID */
+function getFreeUid(entries) {
+    const nums = Object.keys(entries).map(Number).filter(n => !isNaN(n));
+    return nums.length ? Math.max(...nums) + 1 : 0;
+}
+
+/** 从服务器加载世界书数据 */
+async function fetchWorldInfo(name) {
+    const resp = await fetch('/api/worldinfo/get', {
+        method: 'POST',
+        headers: getRequestHeaders(),
+        body: JSON.stringify({ name }),
+    });
+    if (!resp.ok) throw new Error(`读取世界书失败: HTTP ${resp.status}`);
+    const data = await resp.json();
+    if (!data.entries) data.entries = {};
+    return data;
+}
+
+/** 将世界书数据保存到服务器 */
+async function pushWorldInfo(name, data) {
+    const resp = await fetch('/api/worldinfo/edit', {
+        method: 'POST',
+        headers: getRequestHeaders(),
+        body: JSON.stringify({ name, data }),
+    });
+    if (!resp.ok) throw new Error(`保存世界书失败: HTTP ${resp.status}`);
+}
 
 /**
  * 在世界书中创建或更新角色对应的条目
  */
 async function syncCharacterWIEntry(char) {
     const wb = getSettings().worldbook;
-    if (!wb) { console.warn(`${LOG} 未选择世界书`); return; }
-
-    let data;
-    try {
-        data = await loadWorldInfo(wb);
-    } catch (e) {
-        console.error(`${LOG} 无法加载世界书:`, e);
+    if (!wb) {
+        toastr.warning('请先在扩展设置中选择目标世界书', '伊甸园');
         return;
     }
-    if (!data) return;
 
-    const content = buildWIContent(char);
+    try {
+        const data = await fetchWorldInfo(wb);
+        const content = buildWIContent(char);
 
-    if (char.wiUid != null && data.entries[char.wiUid]) {
-        // 更新已有条目
-        data.entries[char.wiUid].content = content;
-        data.entries[char.wiUid].disable = false;
-    } else {
-        // 新建条目
-        const entry = createWorldInfoEntry(wb, data);
-        if (!entry) { console.error(`${LOG} 无法创建世界书条目`); return; }
+        if (char.wiUid != null && data.entries[char.wiUid] !== undefined) {
+            // 更新已有条目
+            data.entries[char.wiUid].content = content;
+            data.entries[char.wiUid].disable = false;
+        } else {
+            // 新建条目，手动构建完整的 entry 对象
+            const uid = getFreeUid(data.entries);
+            data.entries[uid] = {
+                uid,
+                key: [], keysecondary: [],
+                comment:   `伊甸园-${char.name}`,
+                content,
+                constant:  true,
+                vectorized: false,
+                selective: true,
+                selectiveLogic: 0,
+                addMemo:   true,
+                order:     9998,
+                position:  3,      // ANBottom：作者注释之后
+                disable:   false,
+                excludeRecursion: false,
+                preventRecursion: false,
+                delayUntilRecursion: false,
+                probability: 100,
+                useProbability: true,
+                depth:     4,
+                group: '', groupOverride: false, groupWeight: 100,
+                scanDepth: null, caseSensitive: null,
+                matchWholeWords: null, useGroupScoring: null,
+                automationId: '', role: 0,
+                sticky: 0, cooldown: 0, delay: 0,
+            };
+            char.wiUid = uid;
+            saveSettingsDebounced();
+        }
 
-        entry.comment     = `伊甸园-${char.name}`;
-        entry.content     = content;
-        entry.constant    = true;
-        entry.addMemo     = true;
-        entry.position    = world_info_position.ANBottom; // 作者注释之后
-        entry.order       = 9998;
-        entry.disable     = false;
-        entry.role        = 0;
-        entry.depth       = 4;
+        await pushWorldInfo(wb, data);
+        console.log(`${LOG} 世界书条目已同步: ${char.name} (uid=${char.wiUid})`);
 
-        char.wiUid = entry.uid;
-        saveSettingsDebounced();
+    } catch (e) {
+        console.error(`${LOG} 同步世界书条目失败:`, e);
+        toastr.error(`同步失败: ${e.message}`, '伊甸园');
     }
-
-    await saveWorldInfo(wb, data, true);
-    console.log(`${LOG} 世界书条目已同步: ${char.name} (uid=${char.wiUid})`);
 }
 
 /**
@@ -168,14 +206,15 @@ async function syncCharacterWIEntry(char) {
 async function deleteCharacterWIEntry(char) {
     const wb = getSettings().worldbook;
     if (!wb || char.wiUid == null) return;
-
-    let data;
-    try { data = await loadWorldInfo(wb); } catch { return; }
-    if (!data || !data.entries[char.wiUid]) return;
-
-    delete data.entries[char.wiUid];
-    await saveWorldInfo(wb, data, true);
-    console.log(`${LOG} 已删除世界书条目: ${char.name}`);
+    try {
+        const data = await fetchWorldInfo(wb);
+        if (data.entries[char.wiUid] === undefined) return;
+        delete data.entries[char.wiUid];
+        await pushWorldInfo(wb, data);
+        console.log(`${LOG} 已删除世界书条目: ${char.name}`);
+    } catch (e) {
+        console.error(`${LOG} 删除世界书条目失败:`, e);
+    }
 }
 
 // ============================
