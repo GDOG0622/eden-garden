@@ -19,7 +19,7 @@
     width: 100%;
     border-collapse: collapse;
     font-size: 0.88em;
-    table-layout: fixed;
+    table-layout: auto;
 }
 
 .eden-status-table td {
@@ -41,12 +41,13 @@
 }
 
 .eden-field-key {
-    width: 52px;
+    width: 1%;          /* 收缩到内容宽度 */
+    white-space: nowrap;
     background: var(--eden-key-bg);
     font-weight: 600;
     color: var(--SmartThemeEmColor, #c9a0e8);
-    white-space: nowrap;
     user-select: none;
+    padding-right: 10px;
 }
 
 .eden-field-val {
@@ -136,6 +137,50 @@
 .eden-form-row .text_pole {
     flex: 1;
     min-width: 0;
+}
+
+/* ---- 新建角色表单：紧凑多列布局 ---- */
+.eden-form-trio,
+.eden-form-duo {
+    display: flex;
+    gap: 6px;
+    margin-bottom: 6px;
+}
+
+.eden-form-trio > .text_pole {
+    flex: 1;
+    min-width: 0;
+}
+
+.eden-form-duo > .text_pole {
+    flex: 1;
+    min-width: 0;
+}
+
+.eden-modal-body > textarea.text_pole {
+    width: 100%;
+    box-sizing: border-box;
+    margin-bottom: 6px;
+}
+
+/* ---- 状态表：紧凑信息条 ---- */
+.eden-info-strip {
+    padding: 5px 8px;
+    font-size: 0.82em;
+    background: rgba(255,255,255,0.03);
+    border-bottom: 1px solid var(--eden-border);
+    line-height: 1.8;
+}
+
+.eden-info-item {
+    display: inline-block;
+    margin-right: 10px;
+}
+
+.eden-info-item em {
+    font-style: normal;
+    opacity: 0.55;
+    margin-right: 3px;
 }
 
 /* ---- 模态框 ---- */

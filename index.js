@@ -9,6 +9,7 @@
  */
 
 import { extension_settings, getContext } from '../../../extensions.js';
+import { SYSTEM_PROMPT, buildUserPrompt } from './prompt.js';
 import {
     eventSource,
     event_types,
@@ -208,60 +209,25 @@ async function callStatusAPI(char) {
 
     // 构建当前状态文本
     const s = char.status || {};
-    const currentState = STATUS_FIELDS.map(f => `      ${f}|${s[f] || ''}`).join('\n');
+    const currentStateLines = STATUS_FIELDS.map(f => `      ${f}|${s[f] || ''}`).join('\n');
+    const currentState = `<伊甸园>\n      ${s.datetime || datetime}\n${currentStateLines}\n</伊甸园>`;
 
-    const systemPrompt =
-`你是一个专业的角色生理状态追踪器。
-任务：根据最新对话内容，更新角色的<伊甸园>状态面板。
-规则：
-1. 仅输出<伊甸园>...</伊甸园>块，不输出任何其他内容或解释。
-2. 对话中没有明确提及的字段，保持原值不变（非孕未提及则写"N/A"）。
-3. 根据时间和事件合理推断月经周期阶段，精子活性，卵子状态等。
-4. 如有近亲关系，须在该前提下综合考量所有指标。`;
+    const systemPrompt = SYSTEM_PROMPT;
 
-    const userPrompt =
-`角色基本信息：
-名字：${char.name}
-种族：${char.race || '人类'}
-年龄：${char.age || '?'}岁
-身高：${char.height || '?'}
-体重：${char.weight || '?'}
-三围：${char.measurements || '?'}
-月经周期（C）：${char.cycleLength || '?'}天（即多久来一次月经）
-经期持续（M）：${char.menstrualDuration || '?'}天
-月经症状：${char.symptoms || '无'}
-
-当前状态（上次记录）：
-<伊甸园>
-      ${s.datetime || datetime}
-${currentState}
-</伊甸园>
-
-当前时间：${datetime}
-
-最近对话（从旧到新）：
-${chatHistory || '（无对话记录）'}
-
-请输出更新后的状态，格式如下（字段顺序和名称不可变动）：
-<伊甸园>
-      ${datetime}
-      阶段|（月经/卵泡/排卵/黄体 或 孕X期 等，写明第几天/周）
-      种族|
-      年龄|
-      身高|
-      体重|
-      三围|
-      乳房|（解剖学描述形状及当前反应）
-      小穴|（根据生理状态描述）
-      子宫|（宫压+生理状态；孕期描述羊膜/羊水/胎儿；非孕时写孕率和子宫状态）
-      后庭|（15字内；正常则写"正常"）
-      特质|（身体非典型特征；孕期写妊娠症状）
-      精子|（宫内总量/来源/活性；无则写"无"）
-      卵子|（宫内卵子数；无则写"无"）
-      胎数|（孕：胎数和性别；非孕：已产胎数，无则写"0"）
-      父亲|（孕：生父名；非孕：N/A）
-      健康|（孕：胎儿健康/孕检提醒；非孕：N/A）
-</伊甸园>`;
+    const userPrompt = buildUserPrompt({
+        name:               char.name,
+        race:               char.race               || '人类',
+        age:                char.age                || '?',
+        height:             char.height             || '?',
+        weight:             char.weight             || '?',
+        measurements:       char.measurements       || '?',
+        cycleLength:        char.cycleLength        || '?',
+        menstrualDuration:  char.menstrualDuration  || '?',
+        symptoms:           char.symptoms           || '无',
+        currentState,
+        datetime,
+        chatHistory:        chatHistory             || '（无对话记录）',
+    });
 
     try {
         const base = apiUrl.replace(/\/$/, '');
@@ -415,6 +381,9 @@ function renderCharacterNav() {
     }
 }
 
+// 只在主表格中显示、需要可编辑的字段（AI 主要更新区域）
+const EDITABLE_FIELDS = ['阶段', '乳房', '小穴', '子宫', '后庭', '特质', '精子', '卵子', '胎数', '父亲', '健康'];
+
 /** 渲染状态表格 */
 function renderStatusPanel() {
     const s = getSettings();
@@ -434,15 +403,29 @@ function renderStatusPanel() {
     const char   = s.characters[s.activeCharIndex];
     const status = char.status || {};
 
-    // 时间行
+    // ── 时间行 ──
     const dtRow  = tbody.insertRow();
     const dtCell = dtRow.insertCell();
     dtCell.colSpan = 2;
     dtCell.className = 'eden-datetime-row';
     dtCell.textContent = status.datetime || '（未更新）';
 
-    // 各状态字段行
-    for (const field of STATUS_FIELDS) {
+    // ── 紧凑信息行（种族/年龄/身高 · 体重/三围）──
+    // 这 5 项直接取角色基本信息 + AI 更新的 status，不显示编辑按钮
+    const infoRow  = tbody.insertRow();
+    const infoCell = infoRow.insertCell();
+    infoCell.colSpan = 2;
+    infoCell.className = 'eden-info-strip';
+    infoCell.innerHTML =
+        `<span class="eden-info-item"><em>种族</em>${char.race || '—'}</span>` +
+        `<span class="eden-info-item"><em>年龄</em>${char.age || '—'}岁</span>` +
+        `<span class="eden-info-item"><em>身高</em>${char.height || '—'}</span>` +
+        `<br>` +
+        `<span class="eden-info-item"><em>体重</em>${status['体重'] || char.weight || '—'}</span>` +
+        `<span class="eden-info-item"><em>三围</em>${status['三围'] || char.measurements || '—'}</span>`;
+
+    // ── AI 可编辑字段行 ──
+    for (const field of EDITABLE_FIELDS) {
         const row     = tbody.insertRow();
         const keyCell = row.insertCell();
         keyCell.className   = 'eden-field-key';
@@ -458,11 +441,10 @@ function renderStatusPanel() {
         displaySpan.textContent = value || '—';
 
         const editInput = document.createElement('textarea');
-        editInput.className         = 'eden-field-edit text_pole';
-        editInput.value             = value;
-        editInput.rows              = 2;
-        editInput.style.display     = 'none';
-        editInput.dataset.field     = field;
+        editInput.className     = 'eden-field-edit text_pole';
+        editInput.value         = value;
+        editInput.rows          = 2;
+        editInput.style.display = 'none';
 
         const editBtn = document.createElement('i');
         editBtn.className = 'eden-edit-btn fa-solid fa-pencil';
@@ -471,22 +453,20 @@ function renderStatusPanel() {
         editBtn.addEventListener('click', async () => {
             const isEditing = editInput.style.display !== 'none';
             if (!isEditing) {
-                // 切换到编辑模式
                 displaySpan.style.display = 'none';
                 editInput.style.display   = 'block';
                 editInput.focus();
                 editBtn.className = 'eden-edit-btn fa-solid fa-check';
                 editBtn.title     = '保存';
             } else {
-                // 保存
                 const newVal = editInput.value;
                 if (!char.status) char.status = {};
-                char.status[field]          = newVal;
-                displaySpan.textContent     = newVal || '—';
-                displaySpan.style.display   = '';
-                editInput.style.display     = 'none';
-                editBtn.className           = 'eden-edit-btn fa-solid fa-pencil';
-                editBtn.title               = '编辑';
+                char.status[field]        = newVal;
+                displaySpan.textContent   = newVal || '—';
+                displaySpan.style.display = '';
+                editInput.style.display   = 'none';
+                editBtn.className         = 'eden-edit-btn fa-solid fa-pencil';
+                editBtn.title             = '编辑';
                 saveSettingsDebounced();
                 await syncCharacterWIEntry(char);
             }
@@ -502,22 +482,14 @@ function renderStatusPanel() {
 //  角色新建 / 编辑 表单
 // ============================
 
-const CHAR_FIELDS = [
-    { id: 'name',              label: '名字',         placeholder: '',                    textarea: false },
-    { id: 'race',              label: '种族',         placeholder: '人类',                textarea: false },
-    { id: 'age',               label: '年龄',         placeholder: '26',                  textarea: false },
-    { id: 'height',            label: '身高',         placeholder: '165cm',               textarea: false },
-    { id: 'weight',            label: '体重',         placeholder: '76kg',                textarea: false },
-    { id: 'measurements',      label: '三围',         placeholder: '95E/110/90',          textarea: false },
-    { id: 'cycleLength',       label: '周期(C)',      placeholder: '30（月经多久来一次）', textarea: false },
-    { id: 'menstrualDuration', label: '经期(M)',      placeholder: '7（月经持续几天）',   textarea: false },
-    { id: 'symptoms',          label: '月经症状',     placeholder: '痛经/腰痛/无 等',    textarea: true  },
-];
+// 所有角色基本信息字段 id（用于数据读取）
+const CHAR_FIELD_IDS = ['name', 'race', 'age', 'height', 'weight', 'measurements', 'cycleLength', 'menstrualDuration', 'symptoms'];
 
 function showCharacterForm(editIndex = -1) {
     const settings = getSettings();
     const isEdit   = editIndex >= 0;
     const src      = isEdit ? settings.characters[editIndex] : {};
+    const v = id  => (src[id] ?? '').replace(/"/g, '&quot;');
 
     const overlay = document.createElement('div');
     overlay.className = 'eden-modal-overlay';
@@ -525,24 +497,33 @@ function showCharacterForm(editIndex = -1) {
     const modal = document.createElement('div');
     modal.className = 'eden-modal';
 
-    const fieldsHtml = CHAR_FIELDS.map(f => {
-        const val = (src[f.id] ?? '');
-        const esc = val.replace(/"/g, '&quot;');
-        const input = f.textarea
-            ? `<textarea id="edf-${f.id}" class="text_pole" rows="2" placeholder="${f.placeholder}">${val}</textarea>`
-            : `<input id="edf-${f.id}" type="text" class="text_pole" value="${esc}" placeholder="${f.placeholder}" />`;
-        return `<div class="eden-form-row">
-                    <label class="eden-form-label">${f.label}</label>
-                    ${input}
-                </div>`;
-    }).join('');
-
     modal.innerHTML = `
         <div class="eden-modal-header">
             <b>${isEdit ? '编辑角色' : '新建角色'}</b>
             <i id="eden-modal-close" class="fa-solid fa-times menu_button" style="font-size:1em;"></i>
         </div>
-        <div class="eden-modal-body">${fieldsHtml}</div>
+        <div class="eden-modal-body">
+            <!-- 行1：名字 · 种族 · 年龄 -->
+            <div class="eden-form-trio">
+                <input id="edf-name" type="text" class="text_pole" value="${v('name')}" placeholder="名字" />
+                <input id="edf-race" type="text" class="text_pole" value="${v('race') || ''}" placeholder="种族（人类）" />
+                <input id="edf-age"  type="text" class="text_pole" value="${v('age')  || ''}" placeholder="年龄（岁）" />
+            </div>
+            <!-- 行2：身高 · 体重 · 三围 -->
+            <div class="eden-form-trio">
+                <input id="edf-height"       type="text" class="text_pole" value="${v('height')       || ''}" placeholder="身高（cm）" />
+                <input id="edf-weight"       type="text" class="text_pole" value="${v('weight')       || ''}" placeholder="体重（kg）" />
+                <input id="edf-measurements" type="text" class="text_pole" value="${v('measurements') || ''}" placeholder="三围（胸/腰/臀）" />
+            </div>
+            <!-- 行3：月经周期 · 经期 -->
+            <div class="eden-form-duo">
+                <input id="edf-cycleLength"       type="text" class="text_pole" value="${v('cycleLength')       || ''}" placeholder="月经周期 C（天）" />
+                <input id="edf-menstrualDuration" type="text" class="text_pole" value="${v('menstrualDuration') || ''}" placeholder="经期持续 M（天）" />
+            </div>
+            <!-- 行4：症状 -->
+            <textarea id="edf-symptoms" class="text_pole" rows="2"
+                placeholder="月经症状（如：痛经、腰痛、无）">${src.symptoms ?? ''}</textarea>
+        </div>
         <div class="eden-modal-footer">
             <div id="eden-form-cancel" class="menu_button">取消</div>
             <div id="eden-form-save" class="menu_button menu_button_icon">
@@ -559,7 +540,7 @@ function showCharacterForm(editIndex = -1) {
 
     modal.querySelector('#eden-form-save').addEventListener('click', async () => {
         const get = id => (document.getElementById(`edf-${id}`)?.value ?? '').trim();
-        const newData = Object.fromEntries(CHAR_FIELDS.map(f => [f.id, get(f.id)]));
+        const newData = Object.fromEntries(CHAR_FIELD_IDS.map(id => [id, get(id)]));
 
         if (!newData.name) {
             toastr.warning('请输入角色名字', '伊甸园');
@@ -582,6 +563,74 @@ function showCharacterForm(editIndex = -1) {
         renderUI();
         close();
     });
+}
+
+// ============================
+//  模型列表拉取
+// ============================
+
+/**
+ * 从已配置的 API 拉取模型列表，填充到下拉选择框
+ */
+async function fetchModelList() {
+    const { apiUrl, apiKey } = getSettings();
+    const select = document.getElementById('eden-api-model');
+    if (!select) return;
+
+    const refreshBtn = document.getElementById('eden-fetch-models');
+    if (refreshBtn) {
+        refreshBtn.disabled = true;
+        refreshBtn.querySelector('i')?.classList.add('fa-spin');
+    }
+
+    try {
+        const resp = await fetch(`${apiUrl.replace(/\/$/, '')}/models`, {
+            headers: { Authorization: `Bearer ${apiKey}` },
+        });
+
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+
+        const json = await resp.json();
+
+        // 兼容 OpenAI 格式 { data: [{id, ...}] } 和部分返回数组的格式
+        const list = Array.isArray(json) ? json : (json.data ?? []);
+        const ids = list
+            .map(m => m.id ?? m.name ?? String(m))
+            .filter(Boolean)
+            .sort();
+
+        if (!ids.length) {
+            toastr.warning('未获取到任何模型', '伊甸园');
+            return;
+        }
+
+        const current = getSettings().model;
+        select.innerHTML = '';
+        for (const id of ids) {
+            const opt = document.createElement('option');
+            opt.value = id;
+            opt.textContent = id;
+            if (id === current) opt.selected = true;
+            select.appendChild(opt);
+        }
+
+        // 如果当前设置的模型不在列表里，默认选第一个并保存
+        if (!ids.includes(current)) {
+            getSettings().model = ids[0];
+            saveSettingsDebounced();
+        }
+
+        toastr.success(`已加载 ${ids.length} 个模型`, '伊甸园', { timeOut: 2000 });
+
+    } catch (e) {
+        console.error(`${LOG} 拉取模型列表失败:`, e);
+        toastr.error(`拉取模型失败: ${e.message}`, '伊甸园');
+    } finally {
+        if (refreshBtn) {
+            refreshBtn.disabled = false;
+            refreshBtn.querySelector('i')?.classList.remove('fa-spin');
+        }
+    }
 }
 
 // ============================
@@ -660,25 +709,23 @@ function bindEvents() {
     });
 
     // API 配置
-    $(document).on('input', '#eden-api-url',   function () { getSettings().apiUrl  = this.value; saveSettingsDebounced(); });
-    $(document).on('input', '#eden-api-key',   function () { getSettings().apiKey  = this.value; saveSettingsDebounced(); });
-    $(document).on('input', '#eden-api-model', function () { getSettings().model   = this.value; saveSettingsDebounced(); });
+    $(document).on('input', '#eden-api-url', function () { getSettings().apiUrl = this.value; saveSettingsDebounced(); });
+    $(document).on('input', '#eden-api-key', function () { getSettings().apiKey = this.value; saveSettingsDebounced(); });
 
-    // 测试 API 连接
+    // 模型下拉选择
+    $(document).on('change', '#eden-api-model', function () {
+        getSettings().model = this.value;
+        saveSettingsDebounced();
+    });
+
+    // 拉取模型列表
+    $(document).on('click', '#eden-fetch-models', async () => {
+        await fetchModelList();
+    });
+
+    // 测试 API 连接（复用拉取模型）
     $(document).on('click', '#eden-api-test', async () => {
-        const { apiUrl, apiKey } = getSettings();
-        try {
-            const resp = await fetch(`${apiUrl.replace(/\/$/, '')}/models`, {
-                headers: { Authorization: `Bearer ${apiKey}` },
-            });
-            if (resp.ok) {
-                toastr.success('API 连接成功', '伊甸园');
-            } else {
-                toastr.error(`连接失败: HTTP ${resp.status}`, '伊甸园');
-            }
-        } catch (e) {
-            toastr.error(`连接失败: ${e.message}`, '伊甸园');
-        }
+        await fetchModelList();
     });
 }
 
@@ -760,11 +807,17 @@ function buildPanelHTML() {
           </div>
           <div class="eden-form-row">
             <label class="eden-form-label">模型</label>
-            <input id="eden-api-model" type="text" class="text_pole" value="${s.model}"
-              placeholder="gpt-4o-mini"/>
+            <div style="flex:1;display:flex;gap:4px;min-width:0;">
+              <select id="eden-api-model" class="text_pole" style="flex:1;min-width:0;">
+                <option value="${s.model}">${s.model || '（先拉取列表）'}</option>
+              </select>
+              <button id="eden-fetch-models" class="menu_button" title="拉取模型列表" style="flex:0 0 auto;">
+                <i class="fa-solid fa-arrows-rotate"></i>
+              </button>
+            </div>
           </div>
           <button id="eden-api-test" class="menu_button menu_button_icon" style="width:100%;">
-            <i class="fa-solid fa-plug"></i><span>测试连接</span>
+            <i class="fa-solid fa-plug"></i><span>测试连接 &amp; 拉取模型</span>
           </button>
         </div>
       </div>
