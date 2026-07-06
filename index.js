@@ -110,6 +110,7 @@ function buildWIContent(char) {
 
     const lines = [
         `[${char.name} 当前生理状态 | 角色不知情，仅供AI参考]`,
+        char.persona ? `人设摘要：${char.persona}` : '',
         dt ? `更新时间：${dt}` : '',
         ...STATUS_FIELDS.map(f => `${f}：${s[f] || '未知'}`),
     ].filter(Boolean);
@@ -334,6 +335,7 @@ async function callStatusAPI(char) {
         cycleLength:        char.cycleLength        || '?',
         menstrualDuration:  char.menstrualDuration  || '?',
         symptoms:           char.symptoms           || '无',
+        persona:            char.persona            || '',
         currentState,
         datetime,
         chatHistory,
@@ -611,7 +613,7 @@ function renderStatusPanel() {
 // ============================
 
 // 所有角色基本信息字段 id（用于数据读取）
-const CHAR_FIELD_IDS = ['name', 'race', 'age', 'height', 'weight', 'measurements', 'cycleLength', 'menstrualDuration', 'symptoms'];
+const CHAR_FIELD_IDS = ['name', 'race', 'age', 'height', 'weight', 'measurements', 'cycleLength', 'menstrualDuration', 'symptoms', 'persona'];
 
 function showPromptSnapshot(snap) {
     const esc = s => s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
@@ -702,6 +704,9 @@ function showCharacterForm(editIndex = -1) {
             <!-- 行4：症状 -->
             <textarea id="edf-symptoms" class="text_pole" rows="2"
                 placeholder="月经症状（如：痛经、腰痛、无）">${src.symptoms ?? ''}</textarea>
+            <!-- 行5：人设摘要 -->
+            <textarea id="edf-persona" class="text_pole" rows="4"
+                placeholder="角色人设摘要（性格、职业、生活背景、习惯、与其他角色的关系等，供AI推断背景活动用）">${src.persona ?? ''}</textarea>
         </div>
         <div class="eden-modal-footer">
             <div id="eden-form-cancel" class="menu_button">取消</div>

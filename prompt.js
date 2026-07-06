@@ -75,7 +75,7 @@ export const SYSTEM_PROMPT =
 
 export function buildUserPrompt({
     name, race, age, height, weight, measurements,
-    cycleLength, menstrualDuration, symptoms,
+    cycleLength, menstrualDuration, symptoms, persona,
     currentState, datetime, chatHistory,
     knowledgeModules = [],
 }) {
@@ -84,6 +84,8 @@ export function buildUserPrompt({
         ? '\n\n## 当前情景适用参考知识（请结合以下知识更新状态）\n\n' +
           knowledgeModules.filter(m => m && m.trim()).join('\n\n---\n\n')
         : '';
+
+    const personaLine = persona ? `\n人设摘要：${persona}` : '';
 
     return `角色基本信息：
 名字：${name}
@@ -94,7 +96,7 @@ export function buildUserPrompt({
 三围：${measurements}
 月经周期（C）：${cycleLength}天（即多久来一次月经）
 经期持续（M）：${menstrualDuration}天
-月经症状：${symptoms}
+月经症状：${symptoms}${personaLine}
 
 当前状态（上次记录）：
 ${currentState}
