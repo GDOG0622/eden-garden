@@ -33,7 +33,7 @@ const LOG = '[EdenGarden]';
 
 /** 状态字段顺序（与原 <伊甸园> 格式一致） */
 const STATUS_FIELDS = [
-    '阶段', '种族', '年龄', '身高', '体重', '三围',
+    '阶段', '活动', '种族', '年龄', '身高', '体重', '三围',
     '乳房', '小穴', '子宫', '后庭', '特质',
     '精子', '卵子', '胎数', '父亲', '健康',
 ];
@@ -165,9 +165,8 @@ async function syncCharacterWIEntry(char) {
         const content = buildWIContent(char);
 
         if (char.wiUid != null && data.entries[char.wiUid] !== undefined) {
-            // 更新已有条目
+            // 更新已有条目，保留用户设置的 disable 状态
             data.entries[char.wiUid].content = content;
-            data.entries[char.wiUid].disable = false;
         } else {
             // 新建条目，手动构建完整的 entry 对象
             const uid = getFreeUid(data.entries);
@@ -420,13 +419,28 @@ async function onCharacterMessageRendered() {
     const settings = getSettings();
     if (!settings.autoUpdate || !settings.characters.length) return;
 
+    // 读一次世界书，获取各条目的禁用状态
+    let wiEntries = {};
+    if (settings.worldbook) {
+        try {
+            const data = await fetchWorldInfo(settings.worldbook);
+            wiEntries = data.entries || {};
+        } catch (e) {
+            console.warn(`${LOG} 读取世界书失败，跳过禁用状态检查:`, e);
+        }
+    }
+
     isUpdating = true;
     showUpdatingIndicator(true);
     try {
         for (let i = 0; i < settings.characters.length; i++) {
-            if (!settings.characters[i].disabled) {
-                await updateCharacterStatus(i);
+            const char = settings.characters[i];
+            // 若角色对应的世界书条目已被禁用，跳过本次更新
+            if (char.wiUid != null && wiEntries[char.wiUid]?.disable === true) {
+                console.log(`${LOG} 跳过（世界书条目已禁用）: ${char.name}`);
+                continue;
             }
+            await updateCharacterStatus(i);
         }
     } finally {
         isUpdating = false;
@@ -496,7 +510,7 @@ function renderCharacterNav() {
 }
 
 // 只在主表格中显示、需要可编辑的字段（AI 主要更新区域）
-const EDITABLE_FIELDS = ['阶段', '乳房', '小穴', '子宫', '后庭', '特质', '精子', '卵子', '胎数', '父亲', '健康'];
+const EDITABLE_FIELDS = ['阶段', '活动', '乳房', '小穴', '子宫', '后庭', '特质', '精子', '卵子', '胎数', '父亲', '健康'];
 
 /** 渲染状态表格 */
 function renderStatusPanel() {
