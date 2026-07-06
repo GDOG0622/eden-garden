@@ -49,6 +49,9 @@ const defaultSettings = {
     activeCharIndex: 0,
 };
 
+/** 上次 API 调用的提示词快照，用于调试查看 */
+let lastPromptSnapshot = null;
+
 // ============================
 //  Settings helpers
 // ============================
@@ -338,8 +341,23 @@ async function callStatusAPI(char) {
         knowledgeModules,
     });
 
+    // 存快照供调试查看
+    lastPromptSnapshot = {
+        time: datetime,
+        charName: char.name,
+        model,
+        useTwoStep,
+        classifyResult: useTwoStep ? knowledgeModules.map((m, i) => {
+            const labels = ['怀孕', '性爱', '近亲', '特殊种族'];
+            return m ? labels[i] : null;
+        }).filter(Boolean) : null,
+        systemPrompt: SYSTEM_PROMPT,
+        userPrompt,
+    };
+    document.getElementById('eden-prompt-peek')?.classList.toggle('eden-has-snapshot', true);
+
     try {
-        return await _apiCall({
+        const result = await _apiCall({
             apiUrl, apiKey, model,
             maxTokens: 1200,
             temperature: 0.5,
@@ -348,6 +366,8 @@ async function callStatusAPI(char) {
                 { role: 'user',   content: userPrompt },
             ],
         });
+        if (result) lastPromptSnapshot.aiResponse = result;
+        return result;
     } catch (err) {
         console.error(`${LOG} API 调用失败:`, err);
         toastr.error(`状态更新失败: ${err.message}`, '伊甸园');
@@ -579,6 +599,57 @@ function renderStatusPanel() {
 // 所有角色基本信息字段 id（用于数据读取）
 const CHAR_FIELD_IDS = ['name', 'race', 'age', 'height', 'weight', 'measurements', 'cycleLength', 'menstrualDuration', 'symptoms'];
 
+function showPromptSnapshot(snap) {
+    const esc = s => s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+
+    const modulesLine = snap.useTwoStep
+        ? (snap.classifyResult?.length
+            ? `命中模块：${snap.classifyResult.join('、')}`
+            : '未命中任何模块（单步生成）')
+        : '智能知识库未启用';
+
+    const sections = [
+        { title: '基本信息', content: `角色：${snap.charName}　模型：${snap.model}　时间：${snap.time}\n${modulesLine}` },
+        { title: 'System Prompt', content: snap.systemPrompt },
+        { title: 'User Prompt', content: snap.userPrompt },
+        ...(snap.aiResponse ? [{ title: 'AI 响应', content: snap.aiResponse }] : []),
+    ];
+
+    const overlay = document.createElement('div');
+    overlay.className = 'eden-modal-overlay';
+
+    overlay.innerHTML = `
+        <div class="eden-modal" style="width:min(680px,100%);max-height:calc(100vh - 24px);">
+            <div class="eden-modal-header">
+                <b><i class="fa-solid fa-eye" style="margin-right:6px;"></i>上次调用提示词</b>
+                <i id="eden-peek-close" class="fa-solid fa-times menu_button" style="font-size:1em;"></i>
+            </div>
+            <div class="eden-modal-body" style="padding:0;">
+                ${sections.map(sec => `
+                    <div style="border-bottom:1px solid var(--eden-border);">
+                        <div style="padding:6px 14px;font-size:.8em;font-weight:600;opacity:.55;background:rgba(255,255,255,.03);letter-spacing:.05em;">${esc(sec.title)}</div>
+                        <pre class="eden-prompt-pre">${esc(sec.content)}</pre>
+                    </div>
+                `).join('')}
+            </div>
+            <div class="eden-modal-footer">
+                <div id="eden-peek-copy" class="menu_button menu_button_icon">
+                    <i class="fa-solid fa-copy"></i><span>复制 User Prompt</span>
+                </div>
+                <div id="eden-peek-close2" class="menu_button">关闭</div>
+            </div>
+        </div>`;
+
+    document.body.appendChild(overlay);
+    const close = () => overlay.remove();
+    overlay.querySelector('#eden-peek-close').addEventListener('click', close);
+    overlay.querySelector('#eden-peek-close2').addEventListener('click', close);
+    overlay.querySelector('#eden-peek-copy').addEventListener('click', () => {
+        navigator.clipboard.writeText(snap.userPrompt).then(() => toastr.success('已复制到剪贴板', '伊甸园'));
+    });
+    overlay.addEventListener('click', e => { if (e.target === overlay) close(); });
+}
+
 function showCharacterForm(editIndex = -1) {
     const settings = getSettings();
     const isEdit   = editIndex >= 0;
@@ -808,6 +879,15 @@ function bindEvents() {
         saveSettingsDebounced();
     });
 
+    // 提示词查看
+    $(document).on('click', '#eden-prompt-peek', function () {
+        if (!lastPromptSnapshot) {
+            toastr.info('尚未调用过 API，暂无记录', '伊甸园');
+            return;
+        }
+        showPromptSnapshot(lastPromptSnapshot);
+    });
+
     // API 配置
     $(document).on('input', '#eden-api-url', function () { getSettings().apiUrl = this.value; saveSettingsDebounced(); });
     $(document).on('input', '#eden-api-key', function () { getSettings().apiKey = this.value; saveSettingsDebounced(); });
@@ -850,6 +930,9 @@ function buildPanelHTML() {
       <div class="flex-container alignitemscenter" style="gap:8px;margin-bottom:6px;">
         <label style="white-space:nowrap;font-size:.88em;">目标世界书</label>
         <select id="eden-worldbook-select" class="text_pole" style="flex:1;min-width:0;"></select>
+        <i id="eden-prompt-peek" class="fa-solid fa-eye menu_button"
+           title="查看上次调用的提示词"
+           style="font-size:.9em;padding:4px 6px;opacity:0.4;flex-shrink:0;"></i>
       </div>
 
       <hr style="margin:6px 0;">

@@ -243,6 +243,23 @@
     flex-shrink: 0;
 }
 
+/* ---- 提示词预览 ---- */
+.eden-prompt-pre {
+    margin: 0;
+    padding: 8px 14px 10px;
+    font-size: 0.82em;
+    white-space: pre-wrap;
+    word-break: break-word;
+    line-height: 1.55;
+    font-family: inherit;
+    max-height: 260px;
+    overflow-y: auto;
+}
+
+#eden-prompt-peek.eden-has-snapshot {
+    opacity: 1;
+}
+
 /* ---- 更新指示 ---- */
 #eden-updating-indicator {
     font-size: 0.85em;
