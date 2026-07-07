@@ -373,7 +373,7 @@ async function callStatusAPI(char) {
 
     // 存快照供调试查看
     lastPromptSnapshot = {
-        time: datetime,
+        time: new Date().toLocaleString(),
         charName: char.name,
         model,
         useTwoStep,
