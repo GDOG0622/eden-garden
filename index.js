@@ -294,21 +294,19 @@ async function callStatusAPI(char) {
     const context = getContext();
     const chat = context.chat || [];
 
-    // 取最近 20 条非系统消息
-    const recent = chat.slice(-20).filter(m => m.mes && !m.is_system);
-    const chatHistory = recent.map(m =>
-        `${m.is_user ? 'User' : (m.name || 'Assistant')}: ${m.mes}`
-    ).join('\n\n') || '（无对话记录）';
+    // 只取最新一条 AI 消息，并提取 <content> 标签内的内容
+    const lastMsg = [...chat].reverse().find(m => !m.is_user && !m.is_system && m.mes);
+    const rawMes = lastMsg?.mes || '';
+    const contentMatch = rawMes.match(/<content>([\s\S]*?)<\/content>/i);
+    const lastMsgText = (contentMatch ? contentMatch[1] : rawMes).trim();
+    const chatHistory = lastMsg
+        ? `${lastMsg.name || 'Assistant'}: ${lastMsgText}`
+        : '（无对话记录）';
 
-    // 当前时间
-    const now = new Date();
-    const pad = n => String(n).padStart(2, '0');
-    const datetime = `${now.getFullYear()}-${pad(now.getMonth()+1)}-${pad(now.getDate())} ${pad(now.getHours())}:${pad(now.getMinutes())}`;
-
-    // 构建当前状态文本
+    // 构建当前状态文本（时间取上次记录的故事时间）
     const s = char.status || {};
     const currentStateLines = STATUS_FIELDS.map(f => `      ${f}|${s[f] || ''}`).join('\n');
-    const currentState = `<伊甸园>\n      ${s.datetime || datetime}\n${currentStateLines}\n</伊甸园>`;
+    const currentState = `<伊甸园>\n      ${s.datetime || '（未记录）'}\n${currentStateLines}\n</伊甸园>`;
 
     // ── 两步模式：先分类，再按需加载知识模块 ──
     const knowledgeModules = [];
@@ -337,7 +335,6 @@ async function callStatusAPI(char) {
         symptoms:           char.symptoms           || '无',
         persona:            char.persona            || '',
         currentState,
-        datetime,
         chatHistory,
         knowledgeModules,
     });
@@ -384,13 +381,32 @@ let isUpdating = false;
 
 /**
  * 对指定角色发起状态更新（API调用 → 解析 → 写入WI → 刷新UI）
+ * @param {number} charIndex
+ * @param {{ regenerate?: boolean }} opts
+ *   regenerate=true：用上次备份的 prevStatus 作为基线重新生成（撤销上次结果重来）
  */
-async function updateCharacterStatus(charIndex) {
+async function updateCharacterStatus(charIndex, { regenerate = false } = {}) {
     const settings = getSettings();
     const char = settings.characters[charIndex];
     if (!char) return;
 
+    // 重新生成时临时把 status 换成 prevStatus，生成完再还原逻辑由写入负责
+    let tempStatus = null;
+    if (regenerate) {
+        if (!char.prevStatus) {
+            toastr.info('暂无上次备份，无法重新生成', '伊甸园');
+            return;
+        }
+        tempStatus = char.status;          // 暂存当前状态
+        char.status = char.prevStatus;     // 切换为上次备份作为基线
+    }
+
     const raw = await callStatusAPI(char);
+
+    if (regenerate) {
+        char.status = tempStatus;          // 无论成功与否都还原（写入在下方）
+    }
+
     if (!raw) return;
 
     const parsed = parseEdenBlock(raw);
@@ -400,7 +416,12 @@ async function updateCharacterStatus(charIndex) {
         return;
     }
 
-    // 合并字段（保留未覆盖的旧值）
+    // 普通更新前先备份当前状态（重新生成不覆盖 prevStatus，保留原始备份）
+    if (!regenerate) {
+        char.prevStatus = structuredClone(char.status || {});
+    }
+
+    // 写入新状态
     if (!char.status) char.status = {};
     if (parsed.datetime) char.status.datetime = parsed.datetime;
     for (const field of STATUS_FIELDS) {
@@ -412,7 +433,7 @@ async function updateCharacterStatus(charIndex) {
     saveSettingsDebounced();
     await syncCharacterWIEntry(char);
     renderStatusPanel();
-    toastr.success(`${char.name} 状态已更新`, '伊甸园', { timeOut: 2000 });
+    toastr.success(`${char.name} 状态已${regenerate ? '重新生成' : '更新'}`, '伊甸园', { timeOut: 2000 });
 }
 
 /** AI 回复渲染后触发的自动更新 */
@@ -550,7 +571,6 @@ function renderStatusPanel() {
         `<span class="eden-info-item"><em>种族</em>${char.race || '—'}</span>` +
         `<span class="eden-info-item"><em>年龄</em>${char.age || '—'}岁</span>` +
         `<span class="eden-info-item"><em>身高</em>${char.height || '—'}</span>` +
-        `<br>` +
         `<span class="eden-info-item"><em>体重</em>${status['体重'] || char.weight || '—'}</span>` +
         `<span class="eden-info-item"><em>三围</em>${status['三围'] || char.measurements || '—'}</span>`;
 
@@ -886,6 +906,21 @@ function bindEvents() {
         }
     });
 
+    // 重新生成（用 prevStatus 作基线）
+    $(document).on('click', '#eden-regenerate', async () => {
+        if (isUpdating) return;
+        const s = getSettings();
+        if (!s.characters.length) { toastr.info('请先添加角色', '伊甸园'); return; }
+        isUpdating = true;
+        showUpdatingIndicator(true);
+        try {
+            await updateCharacterStatus(s.activeCharIndex, { regenerate: true });
+        } finally {
+            isUpdating = false;
+            showUpdatingIndicator(false);
+        }
+    });
+
     // 自动更新开关
     $(document).on('change', '#eden-auto-update', function () {
         getSettings().autoUpdate = this.checked;
@@ -978,6 +1013,9 @@ function buildPanelHTML() {
       <div class="flex-container alignitemscenter" style="gap:8px;margin-top:6px;flex-wrap:wrap;">
         <button id="eden-update-now" class="menu_button menu_button_icon">
           <i class="fa-solid fa-arrows-rotate"></i><span>立即更新</span>
+        </button>
+        <button id="eden-regenerate" class="menu_button menu_button_icon" title="用上次备份的状态作为基线，重新生成本轮结果">
+          <i class="fa-solid fa-rotate-left"></i><span>重新生成</span>
         </button>
         <label class="checkbox_label" style="margin:0;" title="每次AI回复后自动更新状态">
           <input id="eden-auto-update" type="checkbox" ${s.autoUpdate ? 'checked' : ''}/>

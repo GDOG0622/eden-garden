@@ -76,7 +76,7 @@ export const SYSTEM_PROMPT =
 export function buildUserPrompt({
     name, race, age, height, weight, measurements,
     cycleLength, menstrualDuration, symptoms, persona,
-    currentState, datetime, chatHistory,
+    currentState, chatHistory,
     knowledgeModules = [],
 }) {
     // 将命中的知识模块拼成一个段落插入提示词
@@ -101,14 +101,12 @@ export function buildUserPrompt({
 当前状态（上次记录）：
 ${currentState}
 
-当前时间：${datetime}
-
-最近对话（从旧到新）：
+最新剧情：
 ${chatHistory}${knowledgeSection}
 
 请输出更新后的状态，格式如下（字段顺序和名称不可变动）：
 <伊甸园>
-      ${datetime}
+      （从剧情推断故事内时间，格式 YYYY-MM-DD HH:MM；无法确定则保持原值）
       阶段|（月经/卵泡/排卵/黄体 或 孕X期 等，写明第几天/周）
       活动|（此刻在做什么 → 对身体有何影响；未出现在对话中则大胆推断，禁止敷衍）
       种族|
