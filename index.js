@@ -232,8 +232,9 @@ async function deleteCharacterWIEntry(char) {
 
 /**
  * 内部：向 API 发一次 chat completion 请求
+ * @param {boolean} stream 默认 true，用流式 SSE 避免长响应静默超时
  */
-async function _apiCall({ apiUrl, apiKey, model, messages, maxTokens = 800, temperature = 0.3 }) {
+async function _apiCall({ apiUrl, apiKey, model, messages, maxTokens = 800, temperature = 0.3, stream = true }) {
     const base = apiUrl.replace(/\/$/, '');
     const resp = await fetch(`${base}/chat/completions`, {
         method: 'POST',
@@ -241,14 +242,44 @@ async function _apiCall({ apiUrl, apiKey, model, messages, maxTokens = 800, temp
             'Content-Type': 'application/json',
             'Authorization': `Bearer ${apiKey}`,
         },
-        body: JSON.stringify({ model, messages, max_tokens: maxTokens, temperature }),
+        body: JSON.stringify({ model, messages, max_tokens: maxTokens, temperature, stream }),
     });
     if (!resp.ok) {
         const errText = await resp.text().catch(() => resp.statusText);
         throw new Error(`HTTP ${resp.status}: ${errText}`);
     }
-    const json = await resp.json();
-    return json.choices?.[0]?.message?.content ?? null;
+
+    if (!stream) {
+        const json = await resp.json();
+        return json.choices?.[0]?.message?.content ?? null;
+    }
+
+    // 流式读取 SSE
+    const reader = resp.body.getReader();
+    const decoder = new TextDecoder();
+    let accumulated = '';
+    let buf = '';
+
+    outer: while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buf += decoder.decode(value, { stream: true });
+        const lines = buf.split('\n');
+        buf = lines.pop(); // 保留不完整的末行
+        for (const line of lines) {
+            const t = line.trim();
+            if (!t.startsWith('data: ')) continue;
+            const payload = t.slice(6);
+            if (payload === '[DONE]') break outer;
+            try {
+                const chunk = JSON.parse(payload);
+                const delta = chunk.choices?.[0]?.delta?.content;
+                if (delta) accumulated += delta;
+            } catch { /* 忽略非 JSON 行 */ }
+        }
+    }
+
+    return accumulated || null;
 }
 
 /**
@@ -261,6 +292,7 @@ async function classifyScene({ apiUrl, apiKey, model }, chatHistory) {
             apiUrl, apiKey, model,
             maxTokens: 80,
             temperature: 0,
+            stream: false,
             messages: [
                 { role: 'system', content: CLASSIFY_SYSTEM_PROMPT },
                 { role: 'user',   content: buildClassifyPrompt({ chatHistory }) },
