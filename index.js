@@ -43,8 +43,7 @@ const defaultSettings = {
     apiKey: '',
     model: 'gpt-4o-mini',
     autoUpdate: true,
-    useTwoStep: false,
-    useStream: true,     // 是否启用流式传输
+    useTwoStep: false,   // 是否启用两步调用（先分类，再生成）
     worldbook: '',
     characters: [],
     activeCharIndex: 0,
@@ -235,7 +234,7 @@ async function deleteCharacterWIEntry(char) {
  * 内部：向 API 发一次 chat completion 请求
  * @param {boolean} stream 默认 true，用流式 SSE 避免长响应静默超时
  */
-async function _apiCall({ apiUrl, apiKey, model, messages, maxTokens = 800, temperature = 0.3, stream = getSettings().useStream ?? true }) {
+async function _apiCall({ apiUrl, apiKey, model, messages, maxTokens = 800, temperature = 0.3, stream = true }) {
     const base = apiUrl.replace(/\/$/, '');
     const resp = await fetch(`${base}/chat/completions`, {
         method: 'POST',
@@ -387,31 +386,16 @@ async function callStatusAPI(char) {
     };
     document.getElementById('eden-prompt-peek')?.classList.toggle('eden-has-snapshot', true);
 
-    const messages = [
-        { role: 'system', content: SYSTEM_PROMPT },
-        { role: 'user',   content: userPrompt },
-    ];
-
     try {
-        let result = await _apiCall({ apiUrl, apiKey, model, maxTokens: 2000, temperature: 0.5, messages });
-
-        // 检测截断：响应存在但缺少结束标签，续写一次
-        if (result && !result.includes('</伊甸园>')) {
-            console.warn(`${LOG} 响应被截断，尝试续写…`);
-            toastr.info('响应截断，续写中…', '伊甸园', { timeOut: 3000 });
-            const continued = await _apiCall({
-                apiUrl, apiKey, model,
-                maxTokens: 1000,
-                temperature: 0.5,
-                messages: [
-                    ...messages,
-                    { role: 'assistant', content: result },
-                    { role: 'user', content: '请继续输出，直到</伊甸园>结束标签。' },
-                ],
-            });
-            if (continued) result += continued;
-        }
-
+        const result = await _apiCall({
+            apiUrl, apiKey, model,
+            maxTokens: 1200,
+            temperature: 0.5,
+            messages: [
+                { role: 'system', content: SYSTEM_PROMPT },
+                { role: 'user',   content: userPrompt },
+            ],
+        });
         if (result) lastPromptSnapshot.aiResponse = result;
         return result;
     } catch (err) {
@@ -1009,12 +993,6 @@ function bindEvents() {
     $(document).on('click', '#eden-api-test', async () => {
         await fetchModelList();
     });
-
-    // 流式开关
-    $(document).on('change', '#eden-use-stream', function () {
-        getSettings().useStream = this.checked;
-        saveSettingsDebounced();
-    });
 }
 
 // ============================
@@ -1114,15 +1092,9 @@ function buildPanelHTML() {
               </button>
             </div>
           </div>
-          <div style="display:flex;align-items:center;gap:8px;">
-            <button id="eden-api-test" class="menu_button menu_button_icon" style="flex:1;">
-              <i class="fa-solid fa-plug"></i><span>测试连接 &amp; 拉取模型</span>
-            </button>
-            <label class="checkbox_label" style="margin:0;flex-shrink:0;" title="关闭可兼容不支持流式的模型，但长响应可能超时">
-              <input id="eden-use-stream" type="checkbox" ${s.useStream !== false ? 'checked' : ''}/>
-              <span>流式</span>
-            </label>
-          </div>
+          <button id="eden-api-test" class="menu_button menu_button_icon" style="width:100%;">
+            <i class="fa-solid fa-plug"></i><span>测试连接 &amp; 拉取模型</span>
+          </button>
         </div>
       </div>
 
