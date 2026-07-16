@@ -1,5 +1,5 @@
 /**
- * 伊甸园状态面板 — SillyTavern Extension
+ * 伊甸园 — SillyTavern Extension
  *
  * 功能：
  * - 为角色注册生理信息（种族/年龄/身高/体重/三围/月经周期等）
@@ -1033,7 +1033,7 @@ function buildPanelHTML() {
   <div class="inline-drawer">
     <div class="inline-drawer-toggle inline-drawer-header">
       <div class="flex-container alignitemscenter margin0">
-        <b>🌿 伊甸园状态面板</b>
+        <b>🌿 伊甸园</b>
       </div>
       <div class="inline-drawer-icon fa-solid fa-circle-chevron-down down"></div>
     </div>
